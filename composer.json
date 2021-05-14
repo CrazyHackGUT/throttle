@@ -4,6 +4,7 @@
     "description": "Lightweight google-breakpad back-end written in PHP and backed by MySQL",
     "homepage": "https://crash.limetech.org/",
     "license": "Apache-2.0",
+    "minimum-stability": "dev",
     "authors": [
         {
             "name": "Asher Baker",
@@ -15,10 +16,10 @@
         {
             "type": "package",
             "package": {
-                "name": "phacility/libphutil",
+                "name": "phacility/arcanist",
                 "version": "dev-stable",
                 "source": {
-                    "url": "https://github.com/phacility/libphutil.git",
+                    "url": "https://github.com/phacility/arcanist.git",
                     "type": "git",
                     "reference": "origin/stable"
                 }
@@ -39,7 +40,7 @@
         "silex/web-profiler": "1.0.2",
         "symfony/web-profiler-bundle": "~2.3.0",
         "symfony/debug": "~2.3.0",
-        "phacility/libphutil": "dev-stable",
+        "phacility/arcanist": "dev-stable",
         "lightopenid/lightopenid": "dev-master",
         "pda/pheanstalk": "^3.1",
         "sorien/silex-dbal-profiler": "~1.1"

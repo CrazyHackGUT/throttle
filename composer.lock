@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7ff2751a68555d62642f172d11d30aa6",
+    "content-hash": "30b13c9c79f395428ff2f99138160caf",
     "packages": [
         {
             "name": "cilex/console-service-provider",
@@ -834,15 +834,14 @@
             "time": "2015-08-07T21:42:41+00:00"
         },
         {
-            "name": "phacility/libphutil",
+            "name": "phacility/arcanist",
             "version": "dev-stable",
             "source": {
                 "type": "git",
-                "url": "https://github.com/phacility/libphutil.git",
+                "url": "https://github.com/phacility/arcanist.git",
                 "reference": "origin/stable"
             },
-            "type": "library",
-            "time": "2019-05-16T20:57:37+00:00"
+            "type": "library"
         },
         {
             "name": "pimple/pimple",
@@ -2077,13 +2076,14 @@
     ],
     "packages-dev": [],
     "aliases": [],
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "stability-flags": {
-        "phacility/libphutil": 20,
+        "phacility/arcanist": 20,
         "lightopenid/lightopenid": 20
     },
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": [],
-    "platform-dev": []
+    "platform-dev": [],
+    "plugin-api-version": "2.0.0"
 }
