@@ -8,235 +8,87 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-class SymbolsDownloadCommand extends Command
+class SymbolsDownloadCommand extends AbstractSymbolsDownloadCommand
 {
+    protected $moduleBaseUrl = 'http://msdl.microsoft.com/download/symbols/';
+    protected $providerName = 'microsoft';
+    protected $requiredBinaries = ['wine', 'cabextract'];
+
     protected function configure()
     {
         $this->setName('symbols:download')
-            ->setDescription('Download missing symbol files from the Microsoft Symbol Server.')
-            ->addArgument(
-                'name',
-                InputArgument::OPTIONAL,
-                'Module Name'
-            )
-            ->addArgument(
-                'identifier',
-                InputArgument::OPTIONAL,
-                'Module Identifier'
-            )
-            ->addOption(
-                'limit',
-                'l',
-                InputOption::VALUE_REQUIRED,
-                'Limit'
-            );
+            ->setDescription('Download missing symbol files from the Microsoft Symbol Server.');
+
+        parent::configure();
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function preExecute(InputInterface $input, OutputInterface $output)
     {
-        $app = $this->getApplication()->getContainer();
-
-        if (\Filesystem::resolveBinary('wine') === null || \Filesystem::resolveBinary('cabextract') === null) {
-            throw new \RuntimeException('\'wine\' and \'cabextract\' need to be available in your PATH to use this command');
+        foreach ($this->requiredBinaries as $binary)
+        {
+            if (\Filesystem::resolveBinary($binary) === null)
+            {
+                $binaries = sprintf("'%s'", implode('\', \'', $this->requiredBinaries));
+                throw new \RuntimeException($binaries . ' need to be available in your PATH to use this command');
+            }
         }
 
-        $limit = $input->getOption('limit');
-
-        if ($limit !== null && !ctype_digit($limit)) {
-            throw new \InvalidArgumentException('\'limit\' must be an integer');
-        }
+        $root = $this->getApplication()->getContainer()['root'];
 
         // Initialize the wine environment.
-        execx('WINEPREFIX=%s WINEDEBUG=-all wine regsvr32 %s', $app['root'] . '/.wine', $app['root'] . '/bin/msdia80.dll');
+        execx('WINEPREFIX=%s WINEDEBUG=-all wine regsvr32 %s', $root . '/.wine', $root . '/bin/msdia80.dll');
 
-        $manualName = $input->getArgument('name');
-        $manualIdentifier = $input->getArgument('identifier');
+        // Create directory for PDBs.
+        \Filesystem::createDirectory(sprintf('%s/cache/pdbs', $root), 0777, true);
+    }
 
-        $modules = Array();
+    protected function postExecute(InputInterface $input, OutputInterface $output)
+    {
+        $root = $this->getApplication()->getContainer()['root'];
+        \Filesystem::remove(sprintf('%s/cache/pdbs', $root));
+    }
 
-        if ($manualName) {
-            if (!$manualIdentifier) {
-                throw new \RuntimeException('Specifying \'name\' requires specifying \'identifier\' as well.');
-            }
+    protected function getSearchModulesQuery($limit)
+    {
+        // On Microsoft servers, we're try find only Windows symbols.
+        return str_replace('1=1', 'name LIKE \'%.pdb\'',
+            parent::getSearchModulesQuery($limit));
+    }
 
-            $modules[] = Array('name' => $manualName, 'identifier' => $manualIdentifier);
-        } else {
-            // Find all Windows modules missing symbols
-            $query = 'SELECT DISTINCT name, identifier FROM module WHERE name LIKE \'%.pdb\' AND present = 0';
+    protected function createDownloadFutureFor($name, $identifier)
+    {
+        return parent::createDownloadFutureFor($name, $identifier)
+            ->addHeader('User-Agent', 'Microsoft-Symbol-Server');
+    }
 
-            $modules = $app['db']->executeQuery($query)->fetchAll();
+    protected function saveSymbols($body, $module)
+    {
+        list($name, $identifier) = [$module['name'], $module['identifier']];
+        $app = $this->getApplication()->getContainer();
+        $root = $app['root'];
+
+        // Firstly, we're got an PDB. We need use dump_syms binary.
+        // For this, we're flush file in another directory and run our Wine instance.
+        $prefix = \Filesystem::createDirectory(sprintf('%s/cache/pdbs/%s-%s', $root, $name, $identifier),
+            0777, true);
+        \Filesystem::writeFile($prefix . '/' . $name, $body);
+
+        $failed = false;
+        try
+        {
+            execx('WINEPREFIX=%s WINEDEBUG=-all wine %s %s | gzip > %s',
+                $root . '/.wine',
+                $root . '/bin/dump_syms.exe',
+                $prefix . '/' . $name,
+                $prefix . '/' . $name . '.sym.gz'
+            );
+        }
+        catch (\CommandException $e)
+        {
+            $failed = true;
         }
 
-        $blacklist = null;
-
-        $blacklistJson = $app['redis']->get('throttle:cache:blacklist');
-
-        if ($blacklistJson) {
-            $blacklist = json_decode($blacklistJson, true);
-        }
-
-        if (!$blacklist) {
-            $blacklist = array();
-        }
-
-        $output->writeln('Loaded ' . count($blacklist) . ' blacklist entries');
-
-        foreach ($modules as $key => $module) {
-            $name = $module['name'];
-            $identifier = $module['identifier'];
-
-            if (!$manualName && isset($blacklist[$name])) {
-                if ($blacklist[$name]['_total'] >= 9) {
-                    unset($modules[$key]);
-                    continue;
-                }
-
-                if (isset($blacklist[$name][$identifier])) {
-                    if ($blacklist[$name][$identifier] >= 3) {
-                        unset($modules[$key]);
-                        continue;
-                    }
-                }
-            }
-        }
-
-        shuffle($modules);
-
-        if ($limit) {
-            $modules = array_slice($modules, 0, $limit);
-        }
-
-        $count = count($modules);
-        $output->writeln('Found ' . $count . ' missing symbols');
-
-        // Prepare HTTPSFutures for downloading PDBs.
-        $futures = array();
-        foreach ($modules as $key => $module) {
-            $name = $module['name'];
-            $identifier = $module['identifier'];
-
-            $futures[$key] = id(new \HTTPSFuture('http://msdl.microsoft.com/download/symbols/' . urlencode($name) . '/' . $identifier . '/' . urlencode($name)))
-                ->addHeader('User-Agent', 'Microsoft-Symbol-Server')->setExpectStatus(array(200, 404));
-        }
-
-        $downloaded = 0;
-        $count = count($futures);
-        $output->writeln('Downloading ' . $count . ' missing symbols');
-
-        if ($count === 0) {
-            return;
-        }
-
-        $cache = \Filesystem::createDirectory($app['root'] . '/cache/pdbs', 0777, true);
-
-        $progress = $this->getHelperSet()->get('progress');
-        $progress->start($output, $count);
-
-        // Only run 10 concurrent requests.
-        // I'm unsure on what MS would consider fair here, 1 might be better but is slooooow.
-        // FutureIterator returns them in the order they resolve, so running concurrently lets the later stages optimize.
-        foreach (id(new \FutureIterator($futures))->limit(10) as $key => $future) {
-            list($status, $body, $headers) = $future->resolve();
-
-            if ($status->isError()) {
-                throw $status;
-            }
-
-            $module = $modules[$key];
-
-            $name = $module['name'];
-            $identifier = $module['identifier'];
-
-            if ($status instanceof \HTTPFutureHTTPResponseStatus && $status->getStatusCode() === 404) {
-                if (!isset($blacklist[$name])) {
-                    $blacklist[$name] = [
-                        '_total' => 1,
-                        $identifier => 1,
-                    ];
-                } else {
-                    $blacklist[$name]['_total'] += 1;
-
-                    if (!isset($blacklist[$name][$identifier])) {
-                        $blacklist[$name][$identifier] = 1;
-                    } else {
-                        $blacklist[$name][$identifier] += 1;
-                    }
-                }
-
-                if ($manualName) {
-                    $output->writeln("\r" . 'Failed to download: ' . $name . ' ' . $identifier);
-                }
-
-                $app['redis']->set('throttle:cache:blacklist', json_encode($blacklist));
-
-                $progress->advance();
-                continue;
-            }
-
-            // Reset the total on any successful download.
-            if (isset($blacklist[$name])) {
-                $blacklist[$name]['_total'] = 0;
-                if (isset($blacklist[$name][$identifier])) {
-                    $blacklist[$name][$identifier] = 0;
-                }
-            }
-
-            $app['redis']->set('throttle:cache:blacklist', json_encode($blacklist));
-
-            $prefix = $cache . '/' . $name . '-' . $identifier;
-
-            // Write the PDB.
-            \Filesystem::createDirectory($prefix, 0777, true);
-            \Filesystem::writeFile($prefix . '/' . $name, $body);
-
-            // Finally, dump the symbols.
-            $symfile = substr($name, 0, -3) . 'sym.gz';
-            $symdir = \Filesystem::createDirectory($app['root'] . '/symbols/microsoft/' . $name . '/' . $identifier, 0755, true);
-            
-            $failed = false;
-            try {
-                execx('WINEPREFIX=%s WINEDEBUG=-all wine %s %s | gzip > %s',
-                    $app['root'] . '/.wine', $app['root'] . '/bin/dump_syms.exe', $prefix . '/' . $name, $symdir . '/' . $symfile);
-
-                $downloaded += 1;
-            } catch (\CommandException $e) {
-                $failed = true;
-                $output->writeln("\r" . 'Failed to process: ' . $name . ' ' . $identifier);
-
-                // While a bit messy, we need to delete the orphan symbol file to stop it being marked as present.
-                \Filesystem::remove($symdir . '/' . $symfile);
-            }
-
-            // Delete the PDB and the working dir.
-            \Filesystem::remove($prefix . '/' . $name);
-            \Filesystem::remove($prefix);
-
-            // And finally mark the module as having symbols present.
-            $app['db']->executeUpdate('UPDATE module SET present = ? WHERE name = ? AND identifier = ?', array(!$failed, $name, $identifier));
-
-            $progress->advance();
-        }
-
-        $app['redis']->set('throttle:cache:blacklist', json_encode($blacklist));
-
-        $progress->finish();
-
-        \Filesystem::remove($cache);
-
-        if ($downloaded <= 0) {
-            return;
-        }
-
-        $output->writeln('Waiting for processing lock...');
-
-        $lock = \PhutilFileLock::newForPath($app['root'] . '/cache/process.lck');
-        $lock->lock(300);
-
-        $app['redis']->del('throttle:cache:symbol');
-
-        $output->writeln('Flushed symbol cache');
-
-        $lock->unlock();
+        if ($failed) return false;
+        return parent::saveSymbols(\Filesystem::readFile(sprintf('%s/%s.sym.gz', $prefix, $name)), $module);
     }
 }
-

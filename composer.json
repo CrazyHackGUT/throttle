@@ -43,9 +43,10 @@
         "phacility/arcanist": "dev-stable",
         "lightopenid/lightopenid": "dev-master",
         "pda/pheanstalk": "^3.1",
-        "sorien/silex-dbal-profiler": "~1.1"
+        "sorien/silex-dbal-profiler": "~1.1",
+        "ext-json": "*"
     },
     "autoload": {
-        "psr-0": { "Throttle": "src/" }
+        "psr-4": { "Throttle": "src/Throttle/" }
     }
 }

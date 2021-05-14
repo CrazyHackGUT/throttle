@@ -4,16 +4,9 @@ namespace Throttle\Command;
 
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-
-class ModuleMaxHeap extends \SplMaxHeap
-{
-    public function compare($value1, $value2) {
-        return ($value1['count'] - $value2['count']);
-    }
-}
+use Throttle\ModuleMaxHeap;
 
 class SymbolsStatsCommand extends Command
 {
