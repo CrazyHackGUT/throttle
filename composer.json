@@ -48,6 +48,6 @@
         "ext-apcu": "*"
     },
     "autoload": {
-        "psr-4": { "Throttle": "src/Throttle/" }
+        "psr-4": { "Throttle\\": "src/Throttle/" }
     }
 }
