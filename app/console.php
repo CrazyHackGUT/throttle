@@ -14,25 +14,30 @@ if ($app['config'] === false) {
     return $app['console']->renderException(new \Exception('Missing configuration file, please see app/config.base.php'), $output);
 }
 
+/** @var \Symfony\Component\Console\Application $console */
+$console = $app['console'];
+
 $commands = id(new \FileFinder($app['root'] . '/src/Throttle/Command/'))->withType('f')->withSuffix('php')->find();
 
 foreach ($commands as &$command) {
+    if (!strncmp($command, 'Abstract', 8))
+    {
+        continue;
+    }
+
     $command = '\\Throttle\\Command\\' . substr($command, 0, -4);
-    $command = new $command;
+    $console->add(new $command);
 }
-unset($command);
 
-$app['console']->addCommands($commands);
+$console->getHelperSet()->set(new \Doctrine\DBAL\Tools\Console\Helper\ConnectionHelper($app['db']), 'db');
 
-$app['console']->getHelperSet()->set(new \Doctrine\DBAL\Tools\Console\Helper\ConnectionHelper($app['db']), 'db');
-
-$app['console']->addCommands(array(
+$console->addCommands([
     new \Doctrine\DBAL\Migrations\Tools\Console\Command\ExecuteCommand,
     new \Doctrine\DBAL\Migrations\Tools\Console\Command\GenerateCommand,
     new \Doctrine\DBAL\Migrations\Tools\Console\Command\MigrateCommand,
     new \Doctrine\DBAL\Migrations\Tools\Console\Command\StatusCommand,
     new \Doctrine\DBAL\Migrations\Tools\Console\Command\VersionCommand,
-));
+]);
 
-$app['console']->run(null, $output);
+$console->run(null, $output);
 
