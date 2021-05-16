@@ -44,6 +44,7 @@ function bindLiveCounter(counter, url, interval) {
     });
   }
 
+  counter.text(0);
   updateCounter();
   setInterval(updateCounter, interval * 1000);
 }
