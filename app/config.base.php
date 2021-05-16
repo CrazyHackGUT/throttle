@@ -6,19 +6,19 @@ if (basename(__FILE__) != 'config.base.php') {
 }
 
 if (!is_array($base)) {
-    $base = array();
+    $base = [];
 }
 
-return array_merge($base, array(
+return array_merge($base, [
     'debug' => false,
     'maintenance' => false,
     'show-version' => true,
 
     'email-errors' => false,
     'email-errors.from' => 'noreply@example.com',
-    'email-errors.to' => array(
-        'webmaster@example.com',
-    ),
+    'email-errors.to' => [
+        'webmaster@example.com'
+    ],
 
     'db.host' => 'localhost',
     'db.user' => 'root',
@@ -28,17 +28,17 @@ return array_merge($base, array(
     'redis.host' => 'localhost',
     'redis.port' => 6379,
 
-    'hostname' => 'throttle.example.com',
-    'trusted-proxies' => array(),
+    'munin.node_name' => 'fennec',
 
-    'admins' => array(),
-    'developers' => array(),
+    'hostname' => 'throttle.example.com',
+    'trusted-proxies' => [],
+
+    'admins' => [],
+    'developers' => [],
 
     'apikey' => false,
     'accelerator' => false,
 
-    'show-version' => true,
-
-    'symbol-stores' => array(),
-));
+    'symbol-stores' => [],
+]);
 

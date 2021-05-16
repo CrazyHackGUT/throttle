@@ -3,6 +3,7 @@
 namespace Throttle;
 
 use Silex\Application;
+use Symfony\Component\HttpFoundation\Response;
 
 class Stats
 {
@@ -23,37 +24,19 @@ class Stats
         $key = 'throttle.rrd.today'.$metric;
         $data = \apcu_fetch($key);
         if ($data === false) {
-            $historical = self::getRawRrdData('-24hours', 300, $metric);
+            $historical = self::getRawRrdData('-24hours', 300, $metric, $app['config']['munin.node_name']);
             $historical = array_reduce($historical, function ($r, $d) {
                 return $r + $d[1];
             }, 0);
-
-/*
-            $lukey = 'throttle.rrd.submitted.submitted.lastupdate';
-            $last = \apcu_fetch($lukey);
-            if ($last === false) {
-                list($last,) = \execx('/usr/bin/rrdtool lastupdate %s', '/var/lib/munin/fennec/fennec-throttle_submitted-submitted-d.rrd');
-                $last = \phutil_split_lines($last);
-                $last = array_pop($last);
-                $last = explode(':', $last, 2);
-                $last = trim(array_pop($last));
-                \apcu_add($lukey, $last, 300);
-            }
-
-            $live = $app['redis']->hGet('throttle:stats', 'crashes:submitted');
-
-            $data = round($historical + ($live - $last));
-            \apcu_add($key, $data, 10);
-*/
 
             $data = round($historical);
             \apcu_add($key, $data, 300);
         }
 
-        return new \Symfony\Component\HttpFoundation\Response($data, 200, array(
+        return new Response($data, 200, [
             'Content-Type' => 'text/plain',
             'Access-Control-Allow-Origin' => '*',
-        ));
+        ]);
     }
 
     public function lifetime(Application $app)
@@ -66,7 +49,7 @@ class Stats
             \apcu_add($key, $data, 10);
         }
 
-        return new \Symfony\Component\HttpFoundation\Response($data, 200, array(
+        return new Response($data, 200, array(
             'Content-Type' => 'text/plain',
             'Access-Control-Allow-Origin' => '*',
         ));
@@ -83,7 +66,7 @@ class Stats
             \apcu_add($key, $data, 10);
         }
 
-        return new \Symfony\Component\HttpFoundation\Response($data, 200, array(
+        return new Response($data, 200, array(
             'Content-Type' => 'text/plain',
             'Access-Control-Allow-Origin' => '*',
         ));
@@ -92,8 +75,13 @@ class Stats
     public function daily(Application $app, $module = null, $function = null)
     {
         if ($module === null && $function === null) {
-            $output = self::getCsvRrdData('-90days', 86400, self::METRIC_GRAPH);
-            return new \Symfony\Component\HttpFoundation\Response($output, 200, array(
+            $output = self::getCsvRrdData(
+                '-90days',
+                86400,
+                self::METRIC_GRAPH,
+                $app['config']['munin.node_name']
+            );
+            return new Response($output, 200, array(
                 'Content-Type' => 'text/csv',
                 'Access-Control-Allow-Origin' => '*',
             ));
@@ -129,7 +117,7 @@ class Stats
             $output .= $date.','.$count.PHP_EOL;
         }
 
-        return new \Symfony\Component\HttpFoundation\Response($output, 200, array(
+        return new Response($output, 200, array(
             'Content-Type' => 'text/csv',
             'Access-Control-Allow-Origin' => '*',
         ));
@@ -138,8 +126,13 @@ class Stats
     public function hourly(Application $app, $module = null, $function = null)
     {
         if ($module === null && $function === null) {
-            $output = self::getCsvRrdData('-7days', 3600, self::METRIC_GRAPH);
-            return new \Symfony\Component\HttpFoundation\Response($output, 200, array(
+            $output = self::getCsvRrdData(
+                '-7days',
+                3600,
+                self::METRIC_GRAPH,
+                $app['config']['munin.node_name']
+            );
+            return new Response($output, 200, array(
                 'Content-Type' => 'text/csv',
                 'Access-Control-Allow-Origin' => '*',
             ));
@@ -175,7 +168,7 @@ class Stats
             $output .= $date.','.$count.PHP_EOL;
         }
 
-        return new \Symfony\Component\HttpFoundation\Response($output, 200, array(
+        return new Response($output, 200, array(
             'Content-Type' => 'text/csv',
             'Access-Control-Allow-Origin' => '*',
         ));
@@ -272,16 +265,22 @@ class Stats
         ));
     }
 
-    private static function getRawRrdData($start, $step, $metric)
+    private static function getRawRrdData($start, $step, $metric, $nodeName)
     {
         $key = 'throttle.rrd.'.$metric.'.'.$start.'.'.$step;
-        $data = \apcu_fetch($key);
+        $data = apcu_fetch($key);
         if ($data !== false) {
             return $data;
         }
 
         $metric = str_replace('.', '-', $metric);
-        list($data,) = \execx('/usr/bin/rrdtool graph - --start %s --step %d --imgformat CSV %s %s', $start, $step, 'DEF:value=/var/lib/munin/fennec/fennec-throttle_'.$metric.'-d.rrd:42:AVERAGE', 'LINE1:value#000000:value');
+        list($data,) = execx(
+            '/usr/bin/rrdtool graph - --start %s --step %d --imgformat CSV %s %s',
+            $start,
+            $step,
+            "DEF:value=/var/lib/munin/{$nodeName}/{$nodeName}-throttle_" . $metric . '-d.rrd:42:AVERAGE',
+            'LINE1:value#000000:value'
+        );
         $data = \phutil_split_lines($data);
         array_shift($data);
         $data = array_map(function($d) use ($step) {
@@ -295,15 +294,15 @@ class Stats
         return $data;
     }
 
-    private static function getRrdData($start, $step, $metric)
+    private static function getRrdData($start, $step, $metric, $nodeName)
     {
-        $data = self::getRawRrdData($start, $step, $metric);
+        $data = self::getRawRrdData($start, $step, $metric, $nodeName);
         if (!empty($data)) {
             array_pop($data); // A rrdtool change seems to have resulted in a NaN entry ending up at the end.
             $last_stamp = end($data)[0] + $step;
 
             // TODO: Iteratively step down the periods, required for more than one day.
-            $last_period = self::getRawRrdData($last_stamp, 300, $metric);
+            $last_period = self::getRawRrdData($last_stamp, 300, $metric, $nodeName);
             $last_period = array_reduce($last_period, function($r, $d) {
                 return $r + $d[1];
             }, 0);
@@ -316,7 +315,7 @@ class Stats
         return $data;
     }
 
-    private static function getCsvRrdData($start, $step, $metric)
+    private static function getCsvRrdData($start, $step, $metric, $nodeName)
     {
         $key = 'throttle.rrd.'.$metric.'.'.$start.'.'.$step.'.csv';
         $data = \apcu_fetch($key);
@@ -333,7 +332,7 @@ class Stats
             $date_format = 'Y-m-d-H-i';
         }
 
-        $data = self::getRrdData($start, $step, $metric);
+        $data = self::getRrdData($start, $step, $metric, $nodeName);
         $data = array_map(function($d) use ($date_format) {
             $date = gmdate($date_format, $d[0]);
             return $date.','.$d[1];
@@ -341,7 +340,7 @@ class Stats
         array_unshift($data, 'Date,Crash Reports');
         $data = implode(PHP_EOL, $data).PHP_EOL;
 
-        \apcu_add($key, $data, 300);
+        apcu_add($key, $data, 300);
         return $data;
     }
 }
