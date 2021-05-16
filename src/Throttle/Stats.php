@@ -44,7 +44,7 @@ class Stats
         $key = 'throttle.rrd.lifetime';
         $data = \apcu_fetch($key);
         if ($data === false) {
-            $data = $app['redis']->hGet('throttle:stats', 'crashes:submitted');
+            $data = $app['redis']->hGet('throttle:stats', 'crashes:submitted') ?: 0;
 
             \apcu_add($key, $data, 10);
         }
