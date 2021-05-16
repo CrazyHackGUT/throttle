@@ -59,7 +59,7 @@ $app->register(new Silex\Provider\DoctrineServiceProvider(), array(
 
 $app['redis'] = $app->share(function() use ($app) {
     $redis = new \Redis();
-    $redis->connect('127.0.0.1', 6379, 1);
+    $redis->connect($app['config']['redis.host'], $app['config']['redis.port'], 1);
     return $redis;
 });
 

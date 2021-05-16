@@ -25,6 +25,9 @@ return array_merge($base, array(
     'db.password' => '',
     'db.name' => 'throttle',
 
+    'redis.host' => 'localhost',
+    'redis.port' => 6379,
+
     'hostname' => 'throttle.example.com',
     'trusted-proxies' => array(),
 
